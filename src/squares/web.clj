@@ -102,9 +102,16 @@
       wrap-cookies
       wrap-params))
 
+(defn- wrap-swallow-exceptions [handler]
+  (fn [request]
+    (try
+      (handler request)
+      (catch Throwable _ {:status 500 :headers {} :body "Internal Server Error"}))))
+
 (defn -main [& _]
   (let [config (conf/load-config! "squares.edn")
-        app (create-app config)]
+        app (-> (create-app config)
+                wrap-swallow-exceptions)]
     (run-jetty app {:port 3000})))
 
 (comment
