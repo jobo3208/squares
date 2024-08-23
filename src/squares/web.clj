@@ -4,63 +4,67 @@
             [hiccup.core :refer [html]]
             [ring.adapter.jetty :refer [run-jetty]]
             [ring.middleware.cookies :refer [wrap-cookies]]
-            [ring.middleware.flash :refer [wrap-flash]]
             [ring.middleware.params :refer [wrap-params]]
-            [ring.middleware.session :refer [wrap-session]]
+            [ring.middleware.resource :refer [wrap-resource]]
             [ring.util.response :as resp]
             [squares.config :as conf]
             [squares.core :as core]))
 
-(defn- ans-td [square-idx answer finished]
+(defn- ans-div [square-idx answer finished]
   (if answer
-    [:td {:style "background: #ddd"} answer]
-    [:td
-     [:form {:method :post :autocomplete :off}
-      [:input {:type :hidden :name "square-idx" :value square-idx}]
-      [:input {:type :text :name "entity-id" :disabled finished}]
-      [:input {:type :submit :value ">" :disabled finished}]]]))
+    [:div.grid-item [:div.grid-item-text answer]]
+    [:div.grid-item {:hx-prompt "Enter a guess:"
+                     :hx-post ""
+                     :hx-include "this"
+                     :hx-target "body"}
+     [:form
+      [:input {:type :hidden :name "square-idx" :value square-idx}]]]))
 
-(defn- grid-tpl [pred-strs ans-strs guesses-left message]
-  (let [finished (zero? guesses-left)
-        ans-td #(ans-td % (nth ans-strs %) finished)]
-    (html
-      [:html
-       [:head
-        [:style "
-        .bordered-table {
-          border-collapse: collapse;
-        }
-        .bordered-table th,
-        .bordered-table td {
-          border: 1px solid #000;
-          padding: 8px;
-        }"]]
-       [:body
-        [:p#message message]
-        [:table.bordered-table
-         [:tr [:th] [:th (nth pred-strs 0)] [:th (nth pred-strs 1)] [:th (nth pred-strs 2)]]
-         [:tr [:th (nth pred-strs 3)] (ans-td 0) (ans-td 1) (ans-td 2)]
-         [:tr [:th (nth pred-strs 4)] (ans-td 3) (ans-td 4) (ans-td 5)]
-         [:tr [:th (nth pred-strs 5)] (ans-td 6) (ans-td 7) (ans-td 8)]]
-        [:p "Guesses left:" guesses-left]]])))
-
-(defn- grid-view [backend state message]
+(defn- grid-tpl [backend state message]
   (let [preds (core/get-preds backend (:game-id state))
         pred-strs (map (partial core/display-pred backend) preds)
         ans-strs (map #(when %
                          (core/display-entity backend (core/get-entity backend %)))
-                      (:answers state))]
-    (grid-tpl pred-strs ans-strs (:guesses-left state) message)))
+                      (:answers state))
+        finished (zero? (:guesses-left state))
+        ans-div #(ans-div % (nth ans-strs %) finished)]
+    [:div.container
+      [:div.grid-container
+       [:div.heading]
+       [:div.heading (nth pred-strs 0)]
+       [:div.heading (nth pred-strs 1)]
+       [:div.heading (nth pred-strs 2)]
+       [:div.heading (nth pred-strs 3)]
+       (ans-div 0)
+       (ans-div 1)
+       (ans-div 2)
+       [:div.heading (nth pred-strs 4)]
+       (ans-div 3)
+       (ans-div 4)
+       (ans-div 5)
+       [:div.heading (nth pred-strs 5)]
+       (ans-div 6)
+       (ans-div 7)
+       (ans-div 8)]
+      [:div.guesses-left
+       [:h1 (:guesses-left state)]]]))
 
-(defn- parse-guess [params]
-  (let [raw-guess (select-keys params ["square-idx" "entity-id"])]
-    (when (= (count raw-guess) 2)
-      (-> raw-guess
-          (update-keys keyword)
-          (update :square-idx #(Integer. %))))))
+(defn- page-tpl [backend state message]
+  [:html
+   [:head
+    [:script {:src "/js/htmx.min.js"}]
+    [:link {:rel :stylesheet :href "/css/styles.css?v=1"}]]
+   [:body
+    (grid-tpl backend state message)]])
+
+(defn- parse-guess [request]
+  (when-let [square-idx (get-in request [:params "square-idx"])]
+    (when-let [entity-id (get-in request [:headers "hx-prompt"])]
+      {:square-idx (Integer. square-idx)
+       :entity-id entity-id})))
 
 (defn- create-handler [config]
-  (fn handler [{:keys [uri cookies request-method params flash]}]
+  (fn handler [{:keys [uri cookies request-method params] :as request}]
     (let [backend-name (subs uri 1)]
       (if-let [backend-config (config backend-name)]
         (let [backend (core/get-backend (:ns backend-config) (:opts backend-config))
@@ -75,7 +79,7 @@
                       input-state)]
           (if (= request-method :post)
             (let [guess (try
-                          (parse-guess params)
+                          (parse-guess request)
                           (catch NumberFormatException _
                             nil))]
               (if (s/valid? ::core/guess guess)
@@ -86,21 +90,19 @@
                                 :dupe-guess "You've already used that answer."
                                 :no-guesses-left "Game over."
                                 nil)]
-                  (-> (resp/redirect uri :see-other)
-                      (assoc :flash message)
+                  (-> (resp/response (str (html (grid-tpl backend state' message))))
                       (assoc-in [:cookies "state"] {:path uri
                                                     :max-age (* 24 60 60)
                                                     :value (str state')})))
                 (resp/bad-request "Guess is malformed.")))
-            (resp/response (str (grid-view backend state flash)))))
+            (resp/response (str (html (page-tpl backend state nil))))))
         (resp/not-found "No matching backend found.")))))
 
 (defn create-app [config]
   (-> (create-handler config)
-      wrap-flash
-      wrap-session
-      wrap-cookies
-      wrap-params))
+      (wrap-resource "public")
+      (wrap-cookies)
+      (wrap-params)))
 
 (defn- wrap-swallow-exceptions [handler]
   (fn [request]
@@ -116,6 +118,10 @@
 
 (comment
   ; for repl
+  ; TODO: changes in handler code are not automatically picked up!
+  ; we have to use #' somewhere
   (let [config (conf/load-config! "squares.edn")
         app (create-app config)]
-    (def server (run-jetty app {:port 3000 :join? false}))))
+    (def server (run-jetty app {:port 3000 :join? false})))
+
+  (.stop server))
