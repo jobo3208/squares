@@ -1,1 +1,2 @@
-{"cities" {:ns squares.backend.cities}}
+{"cities" {:ns squares.backend.cities}
+ "discs" {:ns squares.backend.discs}}

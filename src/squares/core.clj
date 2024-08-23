@@ -28,7 +28,13 @@
     "Returns a string representation of the entity.")
   (passes?
     [this pred entity]
-    "Does the entity satisfy the predicate?"))
+    "Does the entity satisfy the predicate?")
+  (get-sample
+    [this]
+    "Returns a sample of entities. Used for pred gen.")
+  (get-pred-classes
+    [this]
+    "Returns a sequence of pred classes. Used for pred gen."))
 
 (defmulti get-backend
   "Create and return an instance of the backend at ns."
