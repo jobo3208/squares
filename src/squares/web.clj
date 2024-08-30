@@ -20,15 +20,26 @@
      [:form
       [:input {:type :hidden :name "square-idx" :value square-idx}]]]))
 
-(defn- grid-tpl [backend state message]
+(defn- grid-tpl [backend state result]
   (let [preds (core/get-preds backend (:game-id state))
         pred-strs (map (partial core/display-pred backend) preds)
         ans-strs (map #(when %
                          (core/display-entity backend (core/get-entity backend %)))
                       (:answers state))
         finished (zero? (:guesses-left state))
-        ans-div #(ans-div % (nth ans-strs %) finished)]
+        ans-div #(ans-div % (nth ans-strs %) finished)
+        [message disposition] (case result
+                                :correct ["Correct!" :good]
+                                :incorrect ["Sorry, that's incorrect." :bad]
+                                :unknown-entity ["That's not a valid guess." :neutral]
+                                :dupe-guess ["You've already used that answer." :neutral]
+                                :no-guesses-left ["Game over." :bad]
+                                [nil nil])]
     [:div.container
+      (when message
+        [:div#status
+         {:class [:status disposition]}
+         [:p message]])
       [:div.grid-container
        [:div.heading]
        [:div.heading (nth pred-strs 0)]
@@ -49,13 +60,14 @@
       [:div.guesses-left
        [:h1 (:guesses-left state)]]]))
 
-(defn- page-tpl [backend state message]
+(defn- page-tpl [backend state result]
   [:html
    [:head
     [:script {:src "/js/htmx.min.js"}]
-    [:link {:rel :stylesheet :href "/css/styles.css?v=1"}]]
+    [:script {:src "/js/squares.js"}]
+    [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
    [:body
-    (grid-tpl backend state message)]])
+    (grid-tpl backend state result)]])
 
 (defn- parse-guess [request]
   (when-let [square-idx (get-in request [:params "square-idx"])]
@@ -83,14 +95,8 @@
                           (catch NumberFormatException _
                             nil))]
               (if (s/valid? ::core/guess guess)
-                (let [[state' result] (core/make-guess state backend guess)
-                      message (case result
-                                :correct "Correct!"
-                                :incorrect "Sorry, that's incorrect."
-                                :dupe-guess "You've already used that answer."
-                                :no-guesses-left "Game over."
-                                nil)]
-                  (-> (resp/response (str (html (grid-tpl backend state' message))))
+                (let [[state' result] (core/make-guess state backend guess)]
+                  (-> (resp/response (str (html (grid-tpl backend state' result))))
                       (assoc-in [:cookies "state"] {:path uri
                                                     :max-age (* 24 60 60)
                                                     :value (str state')})))

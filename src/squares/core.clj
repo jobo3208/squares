@@ -57,17 +57,18 @@
 
 (defn make-guess
   "Make a guess. Returns a pair of the new state and one of the following status
-  keywords: :correct, :incorrect, :dupe-guess, :no-guesses-left."
+  keywords: :correct, :incorrect, :unknown-entity, :dupe-guess, :no-guesses-left."
   [state backend guess]
-  (let [{:keys [square-idx entity-id]} guess]
+  (let [{:keys [square-idx entity-id]} guess
+        entity (get-entity backend entity-id)]
     (cond
       (zero? (:guesses-left state)) [state :no-guesses-left]
       (some #{entity-id} (:answers state)) [state :dupe-guess]
+      (nil? entity) [state :unknown-entity]
       :else
       (let [preds (get-preds backend (:game-id state))
             p1 (nth preds (mod square-idx 3))
             p2 (nth preds (+ 3 (quot square-idx 3)))
-            entity (get-entity backend entity-id)
             state (update state :guesses-left dec)]
         (if (and (passes? backend p1 entity) (passes? backend p2 entity))
           [(assoc-in state [:answers square-idx] entity-id) :correct]
