@@ -60,7 +60,7 @@
       [:div.guesses-left
        [:h1 (:guesses-left state)]]]))
 
-(defn- page-tpl [backend state result]
+(defn- grid-page-tpl [backend state result]
   [:html
    [:head
     [:script {:src "/js/htmx.min.js"}]
@@ -69,40 +69,60 @@
    [:body
     (grid-tpl backend state result)]])
 
+(defn- index-tpl [config]
+  [:html
+   [:head
+    [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
+   [:body
+    [:div.container
+     [:h1 "squares"]
+     [:p "Select a grid to play:"]
+     [:ul
+      (for [backend-name (sort (keys config))]
+        [:li [:a {:href backend-name} backend-name]])]]]])
+
+(defn- index-view [config request]
+  (resp/response (str (html (index-tpl config)))))
+
 (defn- parse-guess [request]
   (when-let [square-idx (get-in request [:params "square-idx"])]
     (when-let [entity-id (get-in request [:headers "hx-prompt"])]
       {:square-idx (Integer. square-idx)
        :entity-id entity-id})))
 
+(defn- grid-view [config {:keys [uri cookies request-method] :as request}]
+  (let [backend-name (subs uri 1)]
+    (if-let [backend-config (config backend-name)]
+      (let [backend (core/get-backend (:ns backend-config) (:opts backend-config))
+            input-state (-> cookies
+                            (get-in ["state" :value])
+                            (edn/read-string))
+            current-game-id (core/get-current-game-id backend)
+            state (if (or (nil? input-state)
+                          (not (s/valid? ::core/state input-state))
+                          (not= (:game-id input-state) current-game-id))
+                    (core/init-state current-game-id)
+                    input-state)]
+        (if (= request-method :post)
+          (let [guess (try
+                        (parse-guess request)
+                        (catch NumberFormatException _
+                          nil))]
+            (if (s/valid? ::core/guess guess)
+              (let [[state' result] (core/make-guess state backend guess)]
+                (-> (resp/response (str (html (grid-tpl backend state' result))))
+                    (assoc-in [:cookies "state"] {:path uri
+                                                  :max-age (* 24 60 60)
+                                                  :value (str state')})))
+              (resp/bad-request "Guess is malformed.")))
+          (resp/response (str (html (grid-page-tpl backend state nil))))))
+      (resp/not-found "No matching backend found."))))
+
 (defn- create-handler [config]
-  (fn handler [{:keys [uri cookies request-method params] :as request}]
-    (let [backend-name (subs uri 1)]
-      (if-let [backend-config (config backend-name)]
-        (let [backend (core/get-backend (:ns backend-config) (:opts backend-config))
-              input-state (-> cookies
-                              (get-in ["state" :value])
-                              (edn/read-string))
-              current-game-id (core/get-current-game-id backend)
-              state (if (or (nil? input-state)
-                            (not (s/valid? ::core/state input-state))
-                            (not= (:game-id input-state) current-game-id))
-                      (core/init-state current-game-id)
-                      input-state)]
-          (if (= request-method :post)
-            (let [guess (try
-                          (parse-guess request)
-                          (catch NumberFormatException _
-                            nil))]
-              (if (s/valid? ::core/guess guess)
-                (let [[state' result] (core/make-guess state backend guess)]
-                  (-> (resp/response (str (html (grid-tpl backend state' result))))
-                      (assoc-in [:cookies "state"] {:path uri
-                                                    :max-age (* 24 60 60)
-                                                    :value (str state')})))
-                (resp/bad-request "Guess is malformed.")))
-            (resp/response (str (html (page-tpl backend state nil))))))
-        (resp/not-found "No matching backend found.")))))
+  (fn handler [{:keys [uri] :as request}]
+    (if (= uri "/")
+      (index-view config request)
+      (grid-view config request))))
 
 (defn create-app [config]
   (-> (create-handler config)
