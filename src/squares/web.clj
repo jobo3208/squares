@@ -3,6 +3,7 @@
             [clojure.spec.alpha :as s]
             [hiccup.core :refer [html]]
             [ring.adapter.jetty :refer [run-jetty]]
+            [ring.middleware.content-type :refer [wrap-content-type]]
             [ring.middleware.cookies :refer [wrap-cookies]]
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.resource :refer [wrap-resource]]
@@ -118,9 +119,11 @@
                 (-> (resp/response (str (html (grid-tpl backend state' guess result))))
                     (assoc-in [:cookies "state"] {:path uri
                                                   :max-age (* 24 60 60)
-                                                  :value (str state')})))
+                                                  :value (str state')})
+                    (assoc-in [:headers "Content-Type"] "text/html")))
               (resp/bad-request "Guess is malformed.")))
-          (resp/response (str (html (grid-page-tpl backend state nil nil))))))
+          (-> (resp/response (str (html (grid-page-tpl backend state nil nil))))
+              (assoc-in [:headers "Content-Type"] "text/html"))))
       (resp/not-found "No matching backend found."))))
 
 (defn- create-handler [config]
@@ -132,6 +135,7 @@
 (defn create-app [config]
   (-> (create-handler config)
       (wrap-resource "public")
+      (wrap-content-type)
       (wrap-cookies)
       (wrap-params)))
 
