@@ -10,36 +10,41 @@
             [squares.config :as conf]
             [squares.core :as core]))
 
-(defn- ans-div [square-idx answer finished]
-  (if answer
-    [:div.grid-item [:div.grid-item-text answer]]
-    [:div.grid-item {:hx-prompt "Enter a guess:"
-                     :hx-post ""
-                     :hx-include "this"
-                     :hx-target "body"}
-     [:form
-      [:input {:type :hidden :name "square-idx" :value square-idx}]]]))
+(defn- ans-div [square-idx answer guess result finished]
+  (let [show-feedback? (= square-idx (:square-idx guess))]
+    (if answer
+      [:div.grid-item
+       (when (and show-feedback? (= result :correct))
+         [:div.feedback.good
+          [:img {:src "/icons/check-circle.svg"}]])
+       [:div.grid-item-text answer]]
+      [:div.grid-item {:hx-prompt "Enter a guess:"
+                       :hx-post ""
+                       :hx-include "this"
+                       :hx-target "body"}
+       (when show-feedback?
+         (case result
+           :incorrect
+           [:div.feedback.bad
+            [:img {:src "/icons/x-circle.svg"}]]
+           :unknown-entity
+           [:div.feedback.neutral
+            [:img {:src "/icons/help-circle.svg"}]]
+           :dupe-guess
+           [:div.feedback.neutral
+            [:img {:src "/icons/slash.svg"}]]))
+       [:form
+        [:input {:type :hidden :name "square-idx" :value square-idx}]]])))
 
-(defn- grid-tpl [backend state result]
+(defn- grid-tpl [backend state guess result]
   (let [preds (core/get-preds backend (:game-id state))
         pred-strs (map (partial core/display-pred backend) preds)
         ans-strs (map #(when %
                          (core/display-entity backend (core/get-entity backend %)))
                       (:answers state))
         finished (zero? (:guesses-left state))
-        ans-div #(ans-div % (nth ans-strs %) finished)
-        [message disposition] (case result
-                                :correct ["Correct!" :good]
-                                :incorrect ["Sorry, that's incorrect." :bad]
-                                :unknown-entity ["That's not a valid guess." :neutral]
-                                :dupe-guess ["You've already used that answer." :neutral]
-                                :no-guesses-left ["Game over." :bad]
-                                [nil nil])]
+        ans-div #(ans-div % (nth ans-strs %) guess result finished)]
     [:div.container
-      (when message
-        [:div#status
-         {:class [:status disposition]}
-         [:p message]])
       [:div.grid-container
        [:div.heading]
        [:div.heading (nth pred-strs 0)]
@@ -60,14 +65,14 @@
       [:div.guesses-left
        [:h1 (:guesses-left state)]]]))
 
-(defn- grid-page-tpl [backend state result]
+(defn- grid-page-tpl [backend state guess result]
   [:html
    [:head
     [:script {:src "/js/htmx.min.js"}]
     [:script {:src "/js/squares.js"}]
     [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
    [:body
-    (grid-tpl backend state result)]])
+    (grid-tpl backend state guess result)]])
 
 (defn- index-tpl [config]
   [:html
@@ -110,12 +115,12 @@
                           nil))]
             (if (s/valid? ::core/guess guess)
               (let [[state' result] (core/make-guess state backend guess)]
-                (-> (resp/response (str (html (grid-tpl backend state' result))))
+                (-> (resp/response (str (html (grid-tpl backend state' guess result))))
                     (assoc-in [:cookies "state"] {:path uri
                                                   :max-age (* 24 60 60)
                                                   :value (str state')})))
               (resp/bad-request "Guess is malformed.")))
-          (resp/response (str (html (grid-page-tpl backend state nil))))))
+          (resp/response (str (html (grid-page-tpl backend state nil nil))))))
       (resp/not-found "No matching backend found."))))
 
 (defn- create-handler [config]

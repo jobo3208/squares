@@ -1,18 +1,18 @@
-const showMessage = function(show, delay = 0) {
-  const message = document.getElementById("status");
-  if (message) {
-    message.style.transition = "opacity " + delay + "s";
-    message.style.opacity = show ? 1 : 0;
-  }
+const showFeedback = function(show, delay = 0) {
+  const feedback = document.getElementsByClassName("feedback");
+  Array.from(feedback).forEach(function (f) {
+    f.style.transition = "opacity " + delay + "s";
+    f.style.opacity = show ? 1 : 0;
+  });
 };
 
 document.addEventListener("DOMContentLoaded", function() {
-  showMessage(false, 0);
+  showFeedback(false, 0);
 });
 
 document.addEventListener("htmx:load", function() {
-  showMessage(true, 0);
+  showFeedback(true, 0);
   setTimeout(function() {
-    showMessage(false, 1);
-  }, 1500);
+    showFeedback(false, 0.25);
+  }, 500);
 });
