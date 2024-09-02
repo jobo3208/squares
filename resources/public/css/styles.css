@@ -31,6 +31,10 @@ body {
   min-width: 100px;
 }
 
+.grid-item form {
+  margin: 0;
+}
+
 .grid-item .feedback {
   position: absolute;
   top: 0;
