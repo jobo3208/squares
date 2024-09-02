@@ -19,10 +19,13 @@
          [:div.feedback.good
           [:img {:src "/icons/check-circle.svg"}]])
        [:div.grid-item-text answer]]
-      [:div.grid-item {:hx-prompt "Enter a guess:"
-                       :hx-post ""
-                       :hx-include "this"
-                       :hx-target "body"}
+      [:div.grid-item
+       (if finished
+         {:class "finished"}
+         {:hx-prompt "Enter a guess:"
+          :hx-post ""
+          :hx-include "this"
+          :hx-target "body"})
        (when show-feedback?
          (case result
            :incorrect
@@ -34,8 +37,9 @@
            :dupe-guess
            [:div.feedback.neutral
             [:img {:src "/icons/slash.svg"}]]))
-       [:form
-        [:input {:type :hidden :name "square-idx" :value square-idx}]]])))
+       (when (not finished)
+         [:form
+          [:input {:type :hidden :name "square-idx" :value square-idx}]])])))
 
 (defn- grid-tpl [backend state guess result]
   (let [preds (core/get-preds backend (:game-id state))
