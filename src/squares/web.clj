@@ -88,7 +88,8 @@
         [:li [:a {:href backend-name} backend-name]])]]]])
 
 (defn- index-view [config request]
-  (resp/response (str (html (index-tpl config)))))
+  (-> (resp/response (str (html (index-tpl config))))
+      (assoc-in [:headers "Content-Type"] "text/html")))
 
 (defn- parse-guess [request]
   (when-let [square-idx (get-in request [:params "square-idx"])]
