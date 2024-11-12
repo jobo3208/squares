@@ -3,7 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as string]
             [java-time.api :as jt]
-            [squares.core :refer [get-backend GridBackend]]
+            [squares.core :refer [get-backend GridBackend PredGen]]
             [squares.pred-gen :refer [generate-and-cache generate-pred]]))
 
 (def create-date (jt/local-date 2024 8 23))
@@ -72,9 +72,6 @@
     (inc (jt/time-between create-date (jt/local-date) :days)))
   (get-preds [this game-id]
     (generate-and-cache this 'squares.backend.discs game-id))
-  (searchable? [_] false)
-  (search-entities [_ _]
-    nil)
   (get-entity [_ entity-id]
     (get data entity-id))
   (display-pred [_ pred]
@@ -83,6 +80,8 @@
     (:title entity))
   (passes? [_ pred entity]
     ((:fn pred) entity))
+
+  PredGen
   (get-sample [_]
     (->> (shuffle (keys data))
          (take 100)

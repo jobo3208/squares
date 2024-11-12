@@ -9,14 +9,6 @@
     [this game-id]
     "Returns sequence of predicates for given game. First 3 are the \"across\"
     predicates, latter 3 are the \"down\" predicates.")
-  (searchable?
-    [this]
-    "Is this backend searchable? If not, the player-entered strings must serve
-    as the entity-ids.")
-  (search-entities
-    [this query]
-    "Returns a sequence of entities partially matching the given query string.
-    Returns nil if backend is not searchable.")
   (get-entity
     [this entity-id]
     "Returns an entity given the entity-id.")
@@ -28,13 +20,20 @@
     "Returns a string representation of the entity.")
   (passes?
     [this pred entity]
-    "Does the entity satisfy the predicate?")
+    "Does the entity satisfy the predicate?"))
+
+(defprotocol Search
+  (search-entities
+    [this query]
+    "Returns a sequence of entities partially matching the given query string."))
+
+(defprotocol PredGen
   (get-sample
     [this]
-    "Returns a sample of entities. Used for pred gen.")
+    "Returns a sample of entities.")
   (get-pred-classes
     [this]
-    "Returns a sequence of pred classes. Used for pred gen."))
+    "Returns a sequence of pred classes."))
 
 (defmulti get-backend
   "Create and return an instance of the backend at ns."

@@ -41,9 +41,6 @@
       (concat
         (map ->letter-pred letters)
         (map ->state-pred states))))
-  (searchable? [_] false)
-  (search-entities [_ _]
-    nil)
   (get-entity [_ entity-id]
     entity-id)
   (display-pred [_ pred]
