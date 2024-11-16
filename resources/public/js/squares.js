@@ -6,13 +6,12 @@ const showFeedback = function(show, delay = 0) {
   });
 };
 
-document.addEventListener("DOMContentLoaded", function() {
-  showFeedback(false, 0);
-});
-
-document.addEventListener("htmx:load", function() {
-  showFeedback(true, 0);
+const flashFeedback = function() {
   setTimeout(function() {
     showFeedback(false, 0.25);
   }, 500);
+};
+
+document.addEventListener("guessMade", function() {
+  flashFeedback();
 });

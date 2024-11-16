@@ -1,17 +1,30 @@
 (ns squares.web
   (:require [clojure.edn :as edn]
             [clojure.spec.alpha :as s]
-            [hiccup.core :refer [html]]
+            [compojure.core :refer [GET POST context routes wrap-routes]]
             [ring.adapter.jetty :refer [run-jetty]]
-            [ring.middleware.content-type :refer [wrap-content-type]]
-            [ring.middleware.cookies :refer [wrap-cookies]]
-            [ring.middleware.params :refer [wrap-params]]
-            [ring.middleware.resource :refer [wrap-resource]]
-            [ring.util.response :as resp]
+            [ring.middleware.defaults :refer [site-defaults wrap-defaults]]
             [squares.config :as conf]
-            [squares.core :as core]))
+            [squares.core :as core]
+            [squares.web.util :refer [abort html-resp wrap-abort wrap-swallow-exceptions]]))
 
-(defn- ans-div [square-idx answer guess result finished]
+(defn- index-tpl [config]
+  [:html
+   [:head
+    [:title "squares"]
+    [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
+   [:body
+    [:div.container
+     [:h1 "squares"]
+     [:p "Select a grid to play:"]
+     [:ul
+      (for [backend-name (sort (keys config))]
+        [:li [:a {:href backend-name} backend-name]])]]]])
+
+(defn- index-view [config request]
+  (html-resp (index-tpl config)))
+
+(defn- ans-div [backend-name square-idx answer guess result finished]
   (let [show-feedback? (= square-idx (:square-idx guess))]
     (if answer
       [:div.grid-item
@@ -22,10 +35,9 @@
       [:div.grid-item
        (if finished
          {:class "finished"}
-         {:hx-prompt "Enter a guess:"
-          :hx-post ""
-          :hx-include "this"
-          :hx-target "body"})
+         {:hx-get (str "/" backend-name "/select")
+          :hx-include :this
+          :hx-target :body})
        (when show-feedback?
          (case result
            :incorrect
@@ -41,16 +53,44 @@
          [:form
           [:input {:type :hidden :name "square-idx" :value square-idx}]])])))
 
-(defn- grid-tpl [backend state guess result]
+(defn- game-tpl [backend-name backend state guess result select]
   (let [preds (core/get-preds backend (:game-id state))
         pred-strs (map (partial core/display-pred backend) preds)
         ans-strs (map #(when %
                          (core/display-entity backend (core/get-entity backend %)))
                       (:answers state))
         finished (zero? (:guesses-left state))
-        ans-div #(ans-div % (nth ans-strs %) guess result finished)]
+        ans-div #(ans-div backend-name % (nth ans-strs %) guess result finished)
+        searchable (satisfies? core/Search backend)]
     [:div.container
       [:div.grid-container
+       (when select
+         [:div.search
+          [:div.search-bar
+           (if searchable
+             [:input {:type :text
+                      :placeholder "Search..."
+                      :name :query
+                      :hx-get (str "/" backend-name "/search")
+                      :hx-trigger "input changed delay:500ms"
+                      :hx-target ".search-results"
+                      :autocomplete :off
+                      :autofocus true}]
+             [:form {:hx-post (str "/" backend-name "/guess")
+                     :hx-target :body
+                     :hx-include "#search-square-idx"}
+              [:input {:type :text
+                       :placeholder "Enter a guess"
+                       :name :entity-id
+                       :autocomplete :off
+                       :autofocus true}]
+              [:input {:type :submit :value "Guess"}]])
+           [:input#search-square-idx {:type :hidden :name "square-idx" :value select}]]
+          [:div.search-results]
+          [:div.search-backdrop
+           {:hx-get (str "/" backend-name "/select")
+            :hx-trigger "click, keyup[key=='Escape'] from:body"
+            :hx-target :body}]])
        [:div.heading]
        [:div.heading (nth pred-strs 0)]
        [:div.heading (nth pred-strs 1)]
@@ -70,98 +110,111 @@
       [:div.guesses-left
        [:h1 (:guesses-left state)]]]))
 
-(defn- grid-page-tpl [backend state guess result]
+(defn- game-page-tpl [backend-name backend state]
   [:html
    [:head
+    [:title (str backend-name " - squares")]
     [:script {:src "/js/htmx.min.js"}]
     [:script {:src "/js/squares.js"}]
     [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
    [:body
-    (grid-tpl backend state guess result)]])
+    [:base {:href (str "/" backend-name)}]
+    (game-tpl backend-name backend state nil nil nil)]])
 
-(defn- index-tpl [config]
-  [:html
-   [:head
-    [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
-   [:body
-    [:div.container
-     [:h1 "squares"]
-     [:p "Select a grid to play:"]
-     [:ul
-      (for [backend-name (sort (keys config))]
-        [:li [:a {:href backend-name} backend-name]])]]]])
+(defn- parse-state [request]
+  (-> request
+      (get-in [:cookies "state" :value])
+      (edn/read-string)))
 
-(defn- index-view [config request]
-  (-> (resp/response (str (html (index-tpl config))))
-      (assoc-in [:headers "Content-Type"] "text/html")))
+(defn- get-state [current-game-id request]
+  (let [input-state (parse-state request)]
+    (if (or (nil? input-state)
+            (not (s/valid? ::core/state input-state))
+            (not= (:game-id input-state) current-game-id))
+      (core/init-state current-game-id)
+      input-state)))
+
+(defn- game-page-view [config {:keys [::backend-name ::backend] :as request}]
+  (let [current-game-id (core/get-current-game-id backend)
+        state (get-state current-game-id request)]
+    (html-resp (game-page-tpl backend-name backend state))))
+
+(defn- select-view [config {:keys [::backend-name ::backend] :as request}]
+  (let [square-idx (-> request :params :square-idx)
+        current-game-id (core/get-current-game-id backend)
+        state (get-state current-game-id request)]
+    (html-resp (game-tpl backend-name backend state nil nil square-idx))))
+
+(defn- search-view [config {:keys [::backend-name ::backend] :as request}]
+  (let [query (-> request :params :query)
+        results (if (> (count query) 2)
+                  (core/search-entities backend query)
+                  [])]
+    (html-resp
+      (when (seq results)
+        [:ul
+         (for [result results]
+          [:li
+           {:hx-post (str "/" backend-name "/guess")
+            :hx-target :body
+            :hx-include "#search-square-idx"
+            :hx-vals (format "{\"entity-id\": \"%s\"}" result)}
+           result])]))))
 
 (defn- parse-guess [request]
-  (when-let [square-idx (get-in request [:params "square-idx"])]
-    (when-let [entity-id (get-in request [:headers "hx-prompt"])]
-      {:square-idx (Integer. square-idx)
-       :entity-id entity-id})))
+  (let [str->int #(try (Integer. %) (catch NumberFormatException _ nil))
+        guess {:square-idx (str->int (get-in request [:params :square-idx]))
+               :entity-id (get-in request [:params :entity-id])}]
+    (when (s/valid? ::core/guess guess)
+      guess)))
 
-(defn- grid-view [config {:keys [uri cookies request-method] :as request}]
-  (let [backend-name (subs uri 1)]
-    (if-let [backend-config (config backend-name)]
-      (let [backend (core/get-backend (:ns backend-config) (:opts backend-config))
-            input-state (-> cookies
-                            (get-in ["state" :value])
-                            (edn/read-string))
-            current-game-id (core/get-current-game-id backend)
-            state (if (or (nil? input-state)
-                          (not (s/valid? ::core/state input-state))
-                          (not= (:game-id input-state) current-game-id))
-                    (core/init-state current-game-id)
-                    input-state)]
-        (if (= request-method :post)
-          (let [guess (try
-                        (parse-guess request)
-                        (catch NumberFormatException _
-                          nil))]
-            (if (s/valid? ::core/guess guess)
-              (let [[state' result] (core/make-guess state backend guess)]
-                (-> (resp/response (str (html (grid-tpl backend state' guess result))))
-                    (assoc-in [:cookies "state"] {:path uri
-                                                  :max-age (* 24 60 60)
-                                                  :value (str state')})
-                    (assoc-in [:headers "Content-Type"] "text/html")))
-              (resp/bad-request "Guess is malformed.")))
-          (-> (resp/response (str (html (grid-page-tpl backend state nil nil))))
-              (assoc-in [:headers "Content-Type"] "text/html"))))
-      (resp/not-found "No matching backend found."))))
+(defn- guess-view [config {:keys [::backend-name ::backend] :as request}]
+  (let [guess (or (parse-guess request) (abort 400 "Malformed guess"))
+        current-game-id (core/get-current-game-id backend)
+        state (get-state current-game-id request)
+        [state' result] (core/make-guess state backend guess)]
+    (-> (html-resp (game-tpl backend-name backend state' guess result nil))
+        (assoc-in [:cookies "state"] {:path (str "/" backend-name)
+                                      :max-age (* 24 60 60)
+                                      :value (str state')})
+        (assoc-in [:headers "HX-Trigger-After-Settle"] "guessMade"))))
 
-(defn- create-handler [config]
-  (fn handler [{:keys [uri] :as request}]
-    (if (= uri "/")
-      (index-view config request)
-      (grid-view config request))))
-
-(defn create-app [config]
-  (-> (create-handler config)
-      (wrap-resource "public")
-      (wrap-content-type)
-      (wrap-cookies)
-      (wrap-params)))
-
-(defn- wrap-swallow-exceptions [handler]
+(defn- wrap-squares-backend [handler config]
   (fn [request]
-    (try
-      (handler request)
-      (catch Throwable _ {:status 500 :headers {} :body "Internal Server Error"}))))
+    (let [backend-name (-> request :params :backend-name)
+          backend-config (or (config backend-name) (abort 404 "Unknown backend"))
+          backend (core/get-backend (:ns backend-config) (:opts backend-config))
+          request (assoc request ::backend-name backend-name
+                                 ::backend backend)]
+      (handler request))))
+
+(defn- create-routes [config]
+  (routes
+    (GET "/" request (index-view config request))
+    (wrap-routes
+      (routes
+        (GET "/:backend-name" request (game-page-view config request))
+        (context "/:backend-name" []
+          (GET "/select" request (select-view config request))
+          (GET "/search" request (search-view config request))
+          (POST "/guess" request (guess-view config request))))
+      wrap-squares-backend config)))
+
+(defn- create-app [config]
+  (-> (create-routes config)
+      (wrap-defaults (assoc-in site-defaults [:security :anti-forgery] false))
+      (wrap-abort)))
 
 (defn -main [& _]
   (let [config (conf/load-config! "squares.edn")
         app (-> (create-app config)
-                wrap-swallow-exceptions)]
+                (wrap-swallow-exceptions))]
     (run-jetty app {:port 3000})))
 
 (comment
   ; for repl
-  ; TODO: changes in handler code are not automatically picked up!
-  ; we have to use #' somewhere
   (let [config (conf/load-config! "squares.edn")
-        app (create-app config)]
-    (def server (run-jetty app {:port 3000 :join? false})))
+        handler (create-app config)]
+    (def server (run-jetty handler {:host "0.0.0.0" :port 3000 :join? false})))
 
   (.stop server))
