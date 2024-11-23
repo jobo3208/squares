@@ -11,8 +11,10 @@
 (defn- index-tpl [config]
   [:html
    [:head
+    [:meta {:charset "utf-8"}]
+    [:meta {:name :viewport :content "width=device-width, initial-scale=1"}]
     [:title "squares"]
-    [:link {:rel :stylesheet :href "/css/styles.css?v=2"}]]
+    [:link {:rel :stylesheet :href "/css/styles.css?v=3"}]]
    [:body
     [:div.container
      [:h1 "squares"]
@@ -113,6 +115,8 @@
 (defn- game-page-tpl [backend-name backend state]
   [:html
    [:head
+    [:meta {:charset "utf-8"}]
+    [:meta {:name :viewport :content "width=device-width, initial-scale=1"}]
     [:title (str backend-name " - squares")]
     [:script {:src "/js/htmx.min.js"}]
     [:script {:src "/js/squares.js"}]
