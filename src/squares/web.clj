@@ -56,12 +56,14 @@
           [:input {:type :hidden :name "square-idx" :value square-idx}]])])))
 
 (defn- game-tpl [backend-name backend state guess result select]
-  (let [preds (core/get-preds backend (:game-id state))
+  (let [{:keys [game-id answers guesses-left]} state
+        preds (core/get-preds backend game-id)
         pred-strs (map (partial core/display-pred backend) preds)
         ans-strs (map #(when %
                          (core/display-entity backend (core/get-entity backend %)))
-                      (:answers state))
-        finished (zero? (:guesses-left state))
+                      answers)
+        finished (zero? guesses-left)
+        num-correct (count (remove nil? answers))
         ans-div #(ans-div backend-name % (nth ans-strs %) guess result finished)
         searchable (satisfies? core/Search backend)]
     [:div.container
@@ -110,7 +112,10 @@
        (ans-div 7)
        (ans-div 8)]
       [:div.guesses-left
-       [:h1 (:guesses-left state)]]]))
+       [:h1
+        (if finished
+          (str num-correct "/9")
+          guesses-left)]]]))
 
 (defn- game-page-tpl [backend-name backend state]
   [:html
