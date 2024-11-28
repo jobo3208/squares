@@ -12,7 +12,7 @@
 (defmulti generate-pred
   "Multimethod to generate a predicate of the given class, optionally
   using the given sample data."
-  (fn [pred-class sample]
+  (fn [backend pred-class sample]
     pred-class))
 
 (defn- coincidence-rate
@@ -65,7 +65,7 @@
     (let [pred-classes (or (core/get-pred-classes backend)
                            (throw (ex-info "Backend does not support pred gen" {})))
           sample (core/get-sample backend)
-          pred-pool (repeatedly pred-pool-size #(generate-pred (rand-nth pred-classes) sample))
+          pred-pool (repeatedly pred-pool-size #(generate-pred backend (rand-nth pred-classes) sample))
           sample-pred-results (map (fn [entity]
                                      (->> pred-pool
                                           (filter #(core/passes? backend % entity))

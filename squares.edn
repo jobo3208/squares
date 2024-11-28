@@ -1,2 +1,8 @@
 {"cities" {:ns squares.backend.cities}
- "discs" {:ns squares.backend.discs}}
+ "discs" {:ns squares.backend.discs
+          :opts {:familiar-manufacturers
+                 ["Discraft" "Dynamic Discs" "Innova" "Latitude 64" "Westside Discs"]
+                 :familiar-discs
+                 ["Aviar" "Cookie" "Corvette" "Destroyer" "Escape" "Fuse" "Invader"
+                  "Jade" "Judge" "Leopard" "Mako3" "Pig" "Pure" "Recoil" "Roc" "Sensei"
+                  "Stag" "Tern" "Thunderbird" "Wraith" "Zone"]}}}

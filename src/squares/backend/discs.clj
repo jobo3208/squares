@@ -14,14 +14,6 @@
               (->> (map (juxt :title identity))
                    (into {}))))
 
-(def familiar-manufacturers
-  ["Discraft" "Dynamic Discs" "Innova" "Latitude 64" "Westside Discs"])
-
-(def familiar-discs
-  ["Aviar" "Cookie" "Corvette" "Destroyer" "Escape" "Fuse" "Invader"
-   "Jade" "Judge" "Leopard" "Mako3" "Pig" "Pure" "Recoil" "Roc" "Sensei"
-   "Stag" "Tern" "Thunderbird" "Wraith" "Zone"])
-
 (defn broad-category [category]
   (cond
     (#{"Putters" "Approach"} category) :putter
@@ -35,19 +27,22 @@
    ::broad-category
    ::compare-flight-number])
 
-(defmethod generate-pred ::name-starts-with [_ sample]
+(defmethod generate-pred ::name-starts-with [_ _ sample]
   (let [v (rand-nth (map (comp first :title) sample))]
     {:fn #(= ((comp first :title) %) v) :name (str "Starts with " v)}))
 
-(defmethod generate-pred ::manufactured-by [_ _]
-  (let [v (rand-nth familiar-manufacturers)]
+(defmethod generate-pred ::manufactured-by [backend _ sample]
+  (let [manufacturers (or (-> backend :opts :familiar-manufacturers)
+                          (map :brand sample))
+        v (rand-nth manufacturers)]
     {:fn #(= (:brand %) v) :name v}))
 
-(defmethod generate-pred ::compare-stability [_ _]
-  (let [candidates (->> data
-                        vals
-                        (filter #((set familiar-discs) (:title %)))
-                        (filter :stability))
+(defmethod generate-pred ::compare-stability [backend _ _]
+  (let [candidates (->> data vals (filter :stability))
+        familiar-discs (-> backend :opts :familiar-discs)
+        candidates (if familiar-discs
+                     (filter #((set familiar-discs) (:title %)) candidates)
+                     candidates)
         disc (rand-nth candidates)
         op (rand-nth ['< '>])]
     {:fn (fn [d]
@@ -55,18 +50,18 @@
              ((resolve op) stability (:stability disc))))
      :name (str (if (= op '<) "Less" "More") " stable than " (:title disc))}))
 
-(defmethod generate-pred ::broad-category [_ sample]
+(defmethod generate-pred ::broad-category [_ _ sample]
   (let [v (rand-nth (map (comp broad-category :category) sample))]
     {:fn #(= ((comp broad-category :category) %) v) :name (string/capitalize (name v))}))
 
-(defmethod generate-pred ::compare-flight-number [_ sample]
+(defmethod generate-pred ::compare-flight-number [_ _ sample]
   (let [number (rand-nth [:speed :glide :turn :fade])
         v (rand-nth (map number sample))
         op (rand-nth ['< '>])]
     {:fn #((resolve op) (number %) v)
      :name (str (string/capitalize (name number)) " " op " " v)}))
 
-(defrecord DiscsBackend []
+(defrecord DiscsBackend [opts]
   GridBackend
   (get-current-game-id [_]
     (inc (jt/time-between create-date (jt/local-date) :days)))
@@ -89,5 +84,5 @@
   (get-pred-classes [_]
     pred-classes))
 
-(defmethod get-backend 'squares.backend.discs [_ _]
-  (->DiscsBackend))
+(defmethod get-backend 'squares.backend.discs [_ opts]
+  (->DiscsBackend opts))
