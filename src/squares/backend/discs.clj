@@ -8,11 +8,12 @@
 
 (def create-date (jt/local-date 2024 8 23))
 
-(def data (-> (io/resource "flightguide.edn")
-              (slurp)
-              (edn/read-string)
-              (->> (map (juxt :title identity))
-                   (into {}))))
+(defn load-data []
+  (-> (io/resource "flightguide.edn")
+      (slurp)
+      (edn/read-string)
+      (->> (map (juxt :title identity))
+           (into {}))))
 
 (defn broad-category [category]
   (cond
@@ -31,15 +32,15 @@
   (let [v (rand-nth (map (comp first :title) sample))]
     {:fn #(= ((comp first :title) %) v) :name (str "Starts with " v)}))
 
-(defmethod generate-pred ::manufactured-by [backend _ sample]
-  (let [manufacturers (or (-> backend :opts :familiar-manufacturers)
+(defmethod generate-pred ::manufactured-by [{:keys [opts]} _ sample]
+  (let [manufacturers (or (:familiar-manufacturers opts)
                           (map :brand sample))
         v (rand-nth manufacturers)]
     {:fn #(= (:brand %) v) :name v}))
 
-(defmethod generate-pred ::compare-stability [backend _ _]
+(defmethod generate-pred ::compare-stability [{:keys [data opts]} _ _]
   (let [candidates (->> data vals (filter :stability))
-        familiar-discs (-> backend :opts :familiar-discs)
+        familiar-discs (:familiar-discs opts)
         candidates (if familiar-discs
                      (filter #((set familiar-discs) (:title %)) candidates)
                      candidates)
@@ -61,7 +62,7 @@
     {:fn #((resolve op) (number %) v)
      :name (str (string/capitalize (name number)) " " op " " v)}))
 
-(defrecord DiscsBackend [opts]
+(defrecord DiscsBackend [data opts]
   GridBackend
   (get-current-game-id [_]
     (inc (jt/time-between create-date (jt/local-date) :days)))
@@ -85,4 +86,5 @@
     pred-classes))
 
 (defmethod get-backend 'squares.backend.discs [_ opts]
-  (->DiscsBackend opts))
+  (let [data (load-data)]
+    (->DiscsBackend data opts)))
